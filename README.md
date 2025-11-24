@@ -1,16 +1,11 @@
 
-## 📌 Study Buddy — AI Mentor with Memory, Emotional Intelligence 
+# Study Buddy — LangChain AI Mentor
 
-Study Buddy is a FastAPI-powered assistant built using LangChain’s **conversation memory** and a **multi-tool intelligent agent**. It analyzes emotion, understands academic inputs, tracks marks over time, and ensures safe handling of sensitive messages — giving students a consistent, context-aware mentoring experience.
-
-Core chatbot logic lives inside bot.py 
-Backend API is main.py 
-Frontend UI runs through frontend_gradio.py 
-Dependencies in requirements.txt 
+Study Buddy is a LangChain-based multi-tool agent that combines FastAPI on the backend and Gradio for a modern chat interface. It uses ConversationTokenBufferMemory to maintain context, enabling accurate responses across positive and negative emotional support, academic performance tracking, and personalized assistance with grades and marks.
 
 ---
 
-## ✨ Features
+## Features
 
 * Enter marks in natural sentences
 * Auto-calculated grade table with average and scale
@@ -21,7 +16,7 @@ Dependencies in requirements.txt
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 project-root/
@@ -33,7 +28,7 @@ project-root/
 └── assets/
     ├── chatbot-start.png
     ├── chatbot-marks.png
-    └── chatbot-table.png
+    └── chatbot-concern.png
 ```
 
 ---
@@ -57,7 +52,7 @@ pip install -r requirements.txt
 
 ---
 
-## ▶️ Run the App
+## Run the App
 
 ### 1) Start FastAPI backend
 
@@ -109,21 +104,13 @@ Self-harm concerns always switch to an immediate safety response.
 
 ---
 
-## 📸 Screenshots
+## Screenshots
 
-Add your actual files later into the `assets/` folder using these exact names:
-
-```markdown
 ### Welcome Chat View
-![Chat Start](assets/chatbot-start.png)
-
-### Adding Marks Example
-![Marks Entry](assets/chatbot-marks.png)
+![Chat Start](chatbot-start.png)
 
 ### Grades Table Display
-![Grades Table](assets/chatbot-table.png)
-```
+![Grades Table](chatbot-marks.png)
 
----
-
-If you want, I can also add a small **system architecture diagram** so companies reviewing your portfolio instantly understand the tech behind it.
+### Emotion Based Response
+![Emotion Response](chatbot-concern.png)
