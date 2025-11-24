@@ -1,10 +1,12 @@
 fastapi
 uvicorn[standard]
 python-dotenv
-langchain
+langchain==0.1.20
+langchain-core
 langchain-groq
 langchain-community
 pydantic
 transformers
 requests
 gradio
+
