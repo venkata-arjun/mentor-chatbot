@@ -1,0 +1,51 @@
+# Python
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+*.pdb
+
+# Virtual environment
+venv/
+.env/
+.venv/
+env/
+
+# Environment variables
+*.env
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+
+# macOS system files
+.DS_Store
+
+# Windows system files
+Thumbs.db
+
+# Logs & Caches
+*.log
+.cache/
+logs/
+
+# FastAPI / Uvicorn
+*.db
+*.sqlite3
+
+# Gradio
+gradio_cached_data/
+
+# Python packaging
+dist/
+build/
+eggs/
+*.egg-info/
+
+# Test artifacts
+.coverage
+pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
