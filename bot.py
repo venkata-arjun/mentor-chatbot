@@ -1,5 +1,3 @@
-# bot.py
-
 import re
 from typing import Dict, Any
 
@@ -7,27 +5,32 @@ from langchain_groq import ChatGroq
 from langchain.memory import ConversationTokenBufferMemory
 from langchain.agents import Tool, initialize_agent, AgentType
 
-# -------------------------------------------------------------------
-# LLM SETUP
-# -------------------------------------------------------------------
-# Requires GROQ_API_KEY in environment (.env is loaded in main.py)
+
+# Initialize the main LLM used for:
+# 1) Intent classification
+# 2) Emotion-based generation
+# 3) Semantic conversation fallback
 llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0.2)
 
-# -------------------------------------------------------------------
-# GLOBAL PER-SESSION STATE
-# -------------------------------------------------------------------
+
+# Global stores for per-session state:
+# - memory: conversation history (for context awareness)
+# - sessions: stores the user's name + marks
+# - agent_store: caches the agent instance per session
 memory_store: Dict[str, ConversationTokenBufferMemory] = {}
-sessions: Dict[str, Dict[str, Any]] = (
-    {}
-)  # {session_id: {"name": str | None, "marks": dict}}
-agent_store: Dict[str, Any] = {}  # {session_id: langchain agent}
+sessions: Dict[str, Dict[str, Any]] = {}
+agent_store: Dict[str, Any] = {}
 
 
 def get_memory(session_id: str) -> ConversationTokenBufferMemory:
+    """
+    Create or return a memory buffer for a user's session.
+    Keeps conversation context for the LLM agent.
+    """
     if session_id not in memory_store:
         memory_store[session_id] = ConversationTokenBufferMemory(
             llm=llm,
-            max_token_limit=8000,
+            max_token_limit=3000,
             return_messages=True,
             memory_key="chat_history",
         )
@@ -35,292 +38,241 @@ def get_memory(session_id: str) -> ConversationTokenBufferMemory:
 
 
 def get_recent_history(session_id: str) -> str:
-    memory = get_memory(session_id)
-    msgs = memory.load_memory_variables({}).get("chat_history", []) or []
+    """
+    Get readable USER/BOT history text for prompting tools.
+    """
+    msgs = (
+        get_memory(session_id).load_memory_variables({}).get("chat_history", []) or []
+    )
     lines = []
     for m in msgs:
-        role = getattr(m, "type", "")
-        who = "USER" if role == "human" else "BOT"
-        lines.append(f"{who}: {m.content}")
+        role = "USER" if getattr(m, "type", "") == "human" else "BOT"
+        lines.append(f"{role}: {m.content}")
     return "\n".join(lines)
 
 
 def get_or_create_session(session_id: str) -> Dict[str, Any]:
+    """
+    Ensure the session exists and return its dictionary.
+    """
     if session_id not in sessions:
         sessions[session_id] = {"name": None, "marks": {}}
     return sessions[session_id]
 
 
-# -------------------------------------------------------------------
-# GRADE ENGINE (YOUR SCALE)
-# -------------------------------------------------------------------
+# ---------------------------
+# Academic Score Processing
+# ---------------------------
+
+
 def calculate_grade(score: int) -> str:
+    """
+    User-specific grading scale.
+    """
     if score >= 90:
         return "S"
-    elif score >= 80:
+    if score >= 80:
         return "A"
-    elif score >= 70:
+    if score >= 70:
         return "B"
-    elif score >= 60:
+    if score >= 60:
         return "C"
-    elif score >= 50:
+    if score >= 50:
         return "D"
-    elif score >= 40:
+    if score >= 40:
         return "E"
-    else:
-        return "F"
+    return "F"
 
 
 def parse_subject_scores(text: str):
     """
-    Extract (subject, score) pairs from flexible text patterns.
-    Supports:
-      - "Maths - 90, Sci - 98"
-      - "I scored 90 in Maths"
-      - "Maths 90 Physics 80"
+    Extract subjects and marks from flexible formats.
+    Supports multiple natural styles:
+    - Maths - 90
+    - 95 in Physics
+    - English 88
     """
     pairs = []
 
-    # Pattern: "subject - score"
+    # Format: Subject - Score
     for subj, score in re.findall(r"([A-Za-z ]+)\s*[-=:]\s*(\d{1,3})", text):
-        subject_clean = subj.strip().title()
-        score_int = int(score)
-        pairs.append((subject_clean, score_int))
+        pairs.append((subj.strip().title(), int(score)))
 
-    # Pattern: "score in subject"
+    # Format: Score in Subject
     for score, subj in re.findall(
         r"(\d{1,3})\s+in\s+([A-Za-z ]+)", text, flags=re.IGNORECASE
     ):
-        subject_clean = subj.strip().title()
-        score_int = int(score)
-        pairs.append((subject_clean, score_int))
+        pairs.append((subj.strip().title(), int(score)))
 
-    # Fallback: "subject score"
+    # Format: Subject Score (fallback)
     if not pairs:
         tokens = text.replace(",", " ").split()
         for i in range(len(tokens) - 1):
             if tokens[i + 1].isdigit():
-                subject_clean = tokens[i].strip().title()
-                score_int = int(tokens[i + 1])
-                pairs.append((subject_clean, score_int))
+                pairs.append((tokens[i].strip().title(), int(tokens[i + 1])))
 
     return pairs
 
 
 def add_or_update_marks(text: str, session_id: str) -> str:
-    session = get_or_create_session(session_id)
-    marks = session["marks"]
-
+    """
+    Store or update marks, recalculate grade summary, return formatted table.
+    """
+    marks = get_or_create_session(session_id)["marks"]
     pairs = parse_subject_scores(text)
+
     if not pairs:
-        return "I couldn’t find any marks. Try like: 'Maths - 91, Physics - 80'."
+        return "I could not detect any valid subject scores."
 
-    for subject, score in pairs:
-        score = max(0, min(int(score), 100))
-        marks[subject] = score
+    for sub, sc in pairs:
+        marks[sub] = max(0, min(int(sc), 100))  # clamp 0–100
 
-    # Build table
+    avg = sum(marks.values()) / len(marks)
+    grade = calculate_grade(int(round(avg)))
+
     lines = [
-        "Here are your updated grades:\n",
+        "Updated Performance",
         "| Subject | Marks | Grade |",
         "|--------|-------|-------|",
     ]
-    total = 0
-    for subject, score in marks.items():
-        grade = calculate_grade(score)
-        total += score
-        lines.append(f"| {subject} | {score} | {grade} |")
-
-    avg = total / len(marks) if marks else 0
-    overall_grade = calculate_grade(int(round(avg)))
+    for sub, sc in marks.items():
+        lines.append(f"| {sub} | {sc} | {calculate_grade(sc)} |")
 
     lines.append("")
-    lines.append(f"Overall: **{avg:.2f}% → Grade {overall_grade}**.")
-
-    if avg >= 80:
-        lines.append("Great work. That’s the right direction—keep pushing yourself.")
-    elif avg >= 60:
-        lines.append(
-            "Good progress. With steady effort, you can push this even higher."
-        )
-    elif avg >= 40:
-        lines.append("You’re passing. Let’s focus on lifting the weaker subjects next.")
-    else:
-        lines.append(
-            "It’s okay to have low scores sometimes. We can build a better plan from here."
-        )
-
-    lines.append("\n(Grade scale: S≥90, A≥80, B≥70, C≥60, D≥50, E≥40, F<40)")
+    lines.append(f"Overall: {avg:.2f}% → Grade {grade}")
+    lines.append("(Scale: S≥90, A≥80, B≥70, C≥60, D≥50, E≥40, F<40)")
     return "\n".join(lines)
 
 
 def show_marks_table(session_id: str) -> str:
-    session = get_or_create_session(session_id)
-    marks = session["marks"]
-
+    """
+    Display all stored marks and final computed grade.
+    """
+    marks = get_or_create_session(session_id)["marks"]
     if not marks:
-        return "I don’t have any marks saved yet. Tell me your scores like: 'Maths - 91, Physics - 80'."
+        return "No marks saved yet."
+
+    avg = sum(marks.values()) / len(marks)
+    grade = calculate_grade(int(round(avg)))
 
     lines = [
-        "Here is your grade summary:\n",
+        "Grade Summary",
         "| Subject | Marks | Grade |",
         "|--------|-------|-------|",
     ]
-    total = 0
-    for subject, score in marks.items():
-        grade = calculate_grade(score)
-        total += score
-        lines.append(f"| {subject} | {score} | {grade} |")
-
-    avg = total / len(marks)
-    overall_grade = calculate_grade(int(round(avg)))
-
+    for sub, sc in marks.items():
+        lines.append(f"| {sub} | {sc} | {calculate_grade(sc)} |")
     lines.append("")
-    lines.append(f"Overall: **{avg:.2f}% → Grade {overall_grade}**.")
-    lines.append("\n(Grade scale: S≥90, A≥80, B≥70, C≥60, D≥50, E≥40, F<40)")
-
+    lines.append(f"Overall: {avg:.2f}% → Grade {grade}")
     return "\n".join(lines)
 
 
-# -------------------------------------------------------------------
-# TOOLS (CORE LOGIC)
-# -------------------------------------------------------------------
-def positive_prompt_tool(text: str, session_id: str) -> str:
-    history = get_recent_history(session_id)
-    prompt = f"""
-You are a motivating study mentor.
+# ---------------------------
+# Tool Definitions
+# ---------------------------
 
-Conversation so far:
-{history}
+
+def positive_prompt_tool(text: str, session_id: str):
+    """
+    Motivational and upbeat responses.
+    Used when classifier detects a positive emotional context.
+    """
+    prompt = f"""
+Conversation:
+{get_recent_history(session_id)}
 
 User: {text}
 
-Goals:
-- Acknowledge their positive feeling.
-- Sound energetic but not cringe.
-- Focus only on the user (use "you", not "I").
-- NEVER talk about your own feelings or what "someone told you".
-- End with one mentor-style question like:
-  "What achievement made your day?" or
-  "What are you most proud of today?"
-Keep it within 2–3 sentences.
+Respond supportive and uplifting in 2 sentences.
 """
     return llm.invoke(prompt).content.strip()
 
 
-def negative_prompt_tool(text: str, session_id: str) -> str:
-    history = get_recent_history(session_id)
+def negative_prompt_tool(text: str, session_id: str):
+    """
+    Empathy + one quick actionable suggestion.
+    """
     prompt = f"""
-You are a calm, motivating mentor.
-
-Conversation so far:
-{history}
+Conversation:
+{get_recent_history(session_id)}
 
 User: {text}
 
-Goals:
-- Acknowledge their feeling (stress, sadness, etc.).
-- Normalize the struggle (it's okay, it happens).
-- Suggest one small, specific action they can take today to feel more in control.
-- Keep the focus on "you", not "I".
-- Keep it concise (2–3 sentences).
+Respond calm with one simple helpful suggestion. 2 sentences.
 """
     return llm.invoke(prompt).content.strip()
 
 
-def student_marks_tool(text: str, session_id: str) -> str:
+def student_marks_tool(text: str, session_id: str):
     """
-    Deterministic academic helper:
-    - If text contains numbers → new / update marks
-    - If asking for grades/average/table/scale → show marks or scale
+    Academic assistant tool.
+    If numbers detected → update marks
+    Else → display the current grade table
     """
-    lower = text.lower()
-
-    # Direct grade scale / criteria question
-    if any(kw in lower for kw in ["scale", "grading", "criteria", "grade range"]):
-        return "(Grade scale: S≥90, A≥80, B≥70, C≥60, D≥50, E≥40, F<40)"
-
-    has_number = bool(re.search(r"\d", text))
-    wants_report = any(
-        key in lower
-        for key in [
-            "grade",
-            "grades",
-            "average",
-            "marks",
-            "mark",
-            "result",
-            "report",
-            "table",
-            "summary",
-        ]
-    )
-
-    if has_number:
+    if re.search(r"\d", text):
         return add_or_update_marks(text, session_id)
-
-    if wants_report:
-        return show_marks_table(session_id)
-
-    return "Tell me your marks like: 'Maths - 91, Physics - 80' and I’ll calculate grades for you."
+    return show_marks_table(session_id)
 
 
-def self_harm_safety_tool(_: str, session_id: str) -> str:
+def self_harm_safety_tool(_: str, session_id: str):
+    """
+    Emergency supportive response when user expresses direct personal intent for self-harm.
+    """
     return (
-        "I’m really sorry you’re feeling like this.\n"
-        "I’m not able to help directly, but you should reach out to someone who can support you right now.\n"
-        "India → Aasra: +91 9820466726 | iCall: 022-25521111\n"
-        "You’re not alone. Please talk to someone immediately."
+        "I am sorry you are feeling like this.\n"
+        "Please reach out to someone who can support you.\n"
+        "India support lines: Aasra +91 9820466726 | iCall 022-25521111"
     )
 
 
-# -------------------------------------------------------------------
-# LANGCHAIN AGENT (FALLBACK FOR GENERIC QUERIES)
-# -------------------------------------------------------------------
+def clarification_question(_: str, __: str):
+    """
+    Used only when safety intent is unclear.
+    Helps prevent false emergency triggers.
+    """
+    return "Are you talking about yourself?"
+
+
+# ---------------------------
+# Agent Setup (fallback generic handling)
+# ---------------------------
+
+
 def get_agent(session_id: str):
     """
-    Creates one LangChain agent per session.
-    Tools are session-bound (no global current_session_id), so
-    multiple users can talk in parallel without clashing.
+    Builds and caches a LangChain agent for generic queries with:
+    - Conversation memory
+    - Tool access
     """
     if session_id in agent_store:
         return agent_store[session_id]
 
     memory = get_memory(session_id)
-
-    # Session-bound wrappers
-    def positive_wrapper(t: str, _sid=session_id) -> str:
-        return positive_prompt_tool(t, _sid)
-
-    def negative_wrapper(t: str, _sid=session_id) -> str:
-        return negative_prompt_tool(t, _sid)
-
-    def marks_wrapper(t: str, _sid=session_id) -> str:
-        return student_marks_tool(t, _sid)
-
-    def safety_wrapper(_: str, _sid=session_id) -> str:
-        return self_harm_safety_tool("", _sid)
-
     tools = [
         Tool(
-            name="PositiveResponse",
-            func=positive_wrapper,
-            description="Use for happy, excited, proud, or positive messages.",
+            "PositiveResponse",
+            lambda t: positive_prompt_tool(t, session_id),
+            "Positive feelings",
         ),
         Tool(
-            name="NegativeResponse",
-            func=negative_wrapper,
-            description="Use for sad, stressed, anxious, lonely, or negative messages.",
+            "NegativeResponse",
+            lambda t: negative_prompt_tool(t, session_id),
+            "Negative feelings",
         ),
         Tool(
-            name="AcademicHelper",
-            func=marks_wrapper,
-            description="Use for anything about marks, grades, scores, subjects, averages, or academic performance.",
+            "AcademicHelper",
+            lambda t: student_marks_tool(t, session_id),
+            "Scores & results",
         ),
         Tool(
-            name="Safety",
-            func=safety_wrapper,
-            description="Use if the user mentions suicide, self-harm, or wanting to die.",
+            "Safety",
+            lambda t: self_harm_safety_tool(t, session_id),
+            "Self-harm emergency",
+        ),
+        Tool(
+            "ClarifyIntent",
+            lambda t: clarification_question(t, session_id),
+            "Ask if message refers to self",
         ),
     ]
 
@@ -330,145 +282,114 @@ def get_agent(session_id: str):
         memory=memory,
         agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
         verbose=False,
-        handle_parsing_errors=True,
     )
     agent_store[session_id] = agent
     return agent
 
 
-# -------------------------------------------------------------------
-# NAME HANDLING
-# -------------------------------------------------------------------
+# ---------------------------
+# Semantic Intent Classifier
+# ---------------------------
+
+
+def classify_intent(text: str) -> str:
+    """
+    LLM classifies message meaning → determines correct tool.
+    Suicide context is only 'safety' when intent is real and personal.
+    """
+    prompt = f"""
+Classify intent of the message:
+
+"{text}"
+
+Rules:
+- Only classify "safety" if the speaker expresses real personal intent to self-harm.
+  Examples: "I want to die", "I will kill myself", "I plan to end my life"
+- If suicide/self-harm is mentioned but about a movie, story, someone else, or joking → NOT safety.
+- If emotional struggle but not explicit intent → negative.
+- If clearly happy → positive.
+- If message about marks/grades → academic.
+- Else → generic.
+
+Return one word:
+academic | positive | negative | safety | generic | unclear
+"""
+    return llm.invoke(prompt).content.strip().lower()
+
+
+# ---------------------------
+# Name Handling
+# ---------------------------
+
+
 def extract_name(text: str) -> str:
     """
-    Extract name from phrases like:
-    - 'hello I am Arjun'
-    - 'my name is Arjun'
-    - 'I'm Arjun'
-    Fallback: last word.
+    Extract user's name if they introduce themselves.
+    Fallback: use last token as a name.
     """
     m = re.search(r"(?:my name is|i am|i'm|this is)\s+([A-Za-z]+)", text, re.IGNORECASE)
     if m:
         return m.group(1).title()
-
-    tokens = text.strip().split()
-    return tokens[-1].title() if tokens else "Friend"
+    return (text.strip().split()[-1] or "Friend").title()
 
 
 def set_name(name: str, session_id: str = "default") -> str:
+    """
+    Store user's name and acknowledge properly.
+    """
     session = get_or_create_session(session_id)
     clean = extract_name(name)
     session["name"] = clean
 
-    memory = get_memory(session_id)
-    memory.save_context(
-        {"input": f"My name is {clean}"},
-        {"output": f"Stored name: {clean}."},
+    get_memory(session_id).save_context(
+        {"input": name}, {"output": f"Stored name: {clean}."}
     )
+    return f"Nice to meet you, {clean}. What should we do next?"
 
-    return f"Nice to meet you, {clean}. What would you like to work on today?"
 
-
-# -------------------------------------------------------------------
-# MAIN CHAT ROUTER
-# -------------------------------------------------------------------
-SUICIDE_KEYWORDS = [
-    "suicide",
-    "kill myself",
-    "want to die",
-    "end my life",
-    "hurt myself",
-    "no point living",
-    "cut myself",
-]
+# ---------------------------
+# Main Chat Router
+# ---------------------------
 
 
 def chat(message: str, session_id: str = "default") -> str:
-    agent = get_agent(session_id)
+    """
+    Main entrypoint:
+    - Name collection (first message)
+    - Semantic intent routing (classification)
+    - Tool chosen by context, not keywords
+    - Safety clarification when uncertain
+    """
     session = get_or_create_session(session_id)
     name = session.get("name")
+    agent = get_agent(session_id)
 
     text = (message or "").strip()
     if not text:
         return "Please type something."
 
-    lower = text.lower()
-
-    # 1) Safety always overrides everything
-    if any(kw in lower for kw in SUICIDE_KEYWORDS):
-        reply = self_harm_safety_tool(text, session_id)
-        mem = get_memory(session_id)
-        mem.save_context({"input": text}, {"output": reply})
-        return reply
-
-    # 2) Exit phrases
-    if any(
-        exit_word in lower for exit_word in ["bye", "goodbye", "see you", "take care"]
-    ):
-        return (
-            f"Bye {name or 'Friend'}. Keep going—you’re capable of more than you think."
-        )
-
-    # 3) Name phase
     if name is None:
+        # First message → assume name
         return set_name(text, session_id)
 
-    # 4) Academic (marks / grades) → deterministic tool
-    if re.search(r"\d", text) or any(
-        key in lower
-        for key in [
-            "grade",
-            "grades",
-            "score",
-            "scores",
-            "marks",
-            "mark",
-            "average",
-            "result",
-            "report",
-            "table",
-        ]
-    ):
+    # Classify semantic meaning of the message
+    intent = classify_intent(text)
+
+    # Route based on model intelligence
+    if intent == "academic":
         reply = student_marks_tool(text, session_id)
-        mem = get_memory(session_id)
-        mem.save_context({"input": text}, {"output": reply})
-        return reply
-
-    # 5) Positive emotion → positive tool
-    if any(
-        word in lower
-        for word in ["happy", "excited", "great", "awesome", "glad", "delighted"]
-    ):
+    elif intent == "positive":
         reply = positive_prompt_tool(text, session_id)
-        mem = get_memory(session_id)
-        mem.save_context({"input": text}, {"output": reply})
-        return reply
-
-    # 6) Negative emotion → negative tool
-    if any(
-        word in lower
-        for word in [
-            "sad",
-            "upset",
-            "depressed",
-            "stressed",
-            "anxious",
-            "worried",
-            "lonely",
-            "tired",
-            "angry",
-            "frustrated",
-            "overwhelmed",
-        ]
-    ):
+    elif intent == "negative":
         reply = negative_prompt_tool(text, session_id)
-        mem = get_memory(session_id)
-        mem.save_context({"input": text}, {"output": reply})
-        return reply
+    elif intent == "safety":
+        reply = self_harm_safety_tool(text, session_id)
+    elif intent == "unclear":
+        reply = clarification_question(text, session_id)
+    else:
+        # Generic fallback → agent thinking + tools
+        reply = agent.run(text)
 
-    # 7) Fallback → LangChain Agent (for generic queries)
-    try:
-        return agent.run(text)  # deprecation warning is fine for now
-    except Exception as e:
-        print("Agent error:", repr(e))
-        return "I had trouble understanding that. Try rephrasing or ask something else."
+    # Save response to memory for conversation context
+    get_memory(session_id).save_context({"input": text}, {"output": reply})
+    return reply
