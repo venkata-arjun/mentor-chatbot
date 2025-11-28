@@ -1,11 +1,13 @@
 import re
-from typing import Dict, Any
+from typing import Dict, Any, List
+from datetime import datetime
+
 
 from langchain_groq import ChatGroq
 from langchain.memory import ConversationTokenBufferMemory
 from langchain.agents import Tool, initialize_agent, AgentType
 
-
+conversation_log: Dict[str, List[Dict[str, Any]]] = {}
 # Initialize the main LLM used for:
 # 1) Intent classification
 # 2) Emotion-based generation
@@ -389,6 +391,16 @@ def chat(message: str, session_id: str = "default") -> str:
     else:
         # Generic fallback → agent thinking + tools
         reply = agent.run(text)
+
+    # Single structured history entry per turn
+    conversation_log.setdefault(session_id, []).append(
+        {
+            "user": text,
+            "bot": reply,
+            "tool": intent,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    )
 
     # Save response to memory for conversation context
     get_memory(session_id).save_context({"input": text}, {"output": reply})
