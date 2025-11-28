@@ -6,7 +6,9 @@ import uvicorn
 # Load environment variables (requires GROQ_API_KEY for LLM use)
 load_dotenv()
 
-from bot import chat, set_name  # Import core chatbot logic
+from bot import chat, set_name, get_recent_history, conversation_log
+
+# Import core chatbot logic
 
 # Create FastAPI application instance
 app = FastAPI(title="Study Buddy API", version="2.0 - Agent + Grades")
@@ -42,6 +44,17 @@ async def set_name_endpoint(req: NameRequest):
 async def root():
     # Basic health-check endpoint
     return {"message": "Study Buddy Agent API running"}
+
+
+@app.get("/history/{session_id}")
+async def history_endpoint(session_id: str):
+    """
+    Return structured turn-by-turn conversation history.
+    """
+    from bot import conversation_log  # local import to avoid circular issues
+
+    history = conversation_log.get(session_id, [])
+    return {"session_id": session_id, "history": history}
 
 
 if __name__ == "__main__":
