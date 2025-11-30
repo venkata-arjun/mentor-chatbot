@@ -33,18 +33,43 @@ It provides academic guidance, positivity reinforcement, calm responses for emot
 ---
 
 ## Architecture and Routing Flow
+```mermaid
+graph TD
+    A[User Sends Message] --> B{Gradio UI}
+    B -- Message + Session ID --> C[FastAPI /chat Endpoint]
+    C --> D[Get User Session]
 
+    D --> E{First Message?}
+    E -- Yes --> F[Extract & Save Name]
+    F --> G[Return Personalized Greeting]
+    E -- No --> H[Intent Classifier LLM]
+
+    subgraph I [Intent-Based Routing]
+        direction TB
+        H --> I1[Academic]
+        H --> I2[Positive]
+        H --> I3[Negative]
+        H --> I4[Safety]
+        H --> I5[Generic/Unclear]
+
+        I1 --> J1[Marks Tool]
+        I2 --> J2[Positive Support]
+        I3 --> J3[Emotional Care]
+        I4 --> J4[Crisis Protocol]
+        I5 --> J5[Clarify & Respond]
+    end
+
+    J1 --> K[Format Final Reply]
+    J2 --> K
+    J3 --> K
+    J4 --> K
+    J5 --> K
+
+    K --> L[Update Memory & Logs]
+    L --> M[Return Reply to User]
+    M --> A
 ```
-User Input
-      ↓
-Intent Classifier (LLM)
-      ↓
-┌────────────┬─────────────┬──────────────┬───────────┬─────────────────┐
-│ Academic   │ Positive    │ Negative     │ Safety    │ Generic / Unclear│
-└─────┬──────┴──────┬──────┴──────┬──────┴─────┬──────┴────────┬────────┘
-      │             │             │            │                │
-Marks Tool    Positive Tool   Negative Tool   Safety Tool   Clarify or Agent
-```
+
 
 The selection logic uses zero keyword matching. Every message is analyzed by the classifier prompt based on its meaning and intent.
 
