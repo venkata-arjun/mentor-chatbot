@@ -80,15 +80,17 @@ The selection logic uses zero keyword matching. Every message is analyzed by the
 ```
 project-root/
 │
-├── bot.py                Core agent, tools, classifiers, memory
-├── main.py               FastAPI backend server
-├── frontend_gradio.py    Web UI
-├── requirements.txt      Dependencies
-└── assets/
-    ├── chatbot-start.png
-    ├── chatbot-marks.png
-    ├── chatbot-concern.png
-    └── suicide-testcase.png
+├── bot.py #Core agent, tools, intent classification, memory handling
+├── main.py #FastAPI backend server exposing chat + history APIs
+├── frontend_gradio.py #Gradio-based user interface
+├── requirements.txt #Project dependencies
+│
+└── assets/ Project media used in README and documentation
+├── chatbot-start.png
+├── chatbot-marks.png
+├── chatbot-concern.png
+├── session-history.png
+└── suicide-testcase.png
 ```
 
 ---
