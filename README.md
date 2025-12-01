@@ -86,11 +86,11 @@ mentor-chatbot/
 ├── requirements.txt #Project dependencies
 │
 └── assets/ Project media used in README and documentation
-├── chatbot-start.png
-├── chatbot-marks.png
-├── chatbot-concern.png
-├── session-history.png
-└── suicide-testcase.png
+    ├── chatbot-start.png
+    ├── chatbot-marks.png
+    ├── chatbot-concern.png
+    ├── session-history.png
+    └── suicide-testcase.png
 ```
 
 ---
