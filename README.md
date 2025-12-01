@@ -286,7 +286,7 @@ Semantic suicide context test case:
 ![Semantic Suicide Context](suicide-testcase.png)
 
 ### Session History API
-**Endpoint:** ```GET```  ```http://127.0.0.1:8000/history/{username}```
+**Endpoint:** ```GET```  ```http://127.0.0.1:8000/history/{sessionID}```
 
 **Example Response:**
 Returns full conversation log for the given session ID.
