@@ -78,7 +78,7 @@ The selection logic uses zero keyword matching. Every message is analyzed by the
 ## Project Structure
 
 ```
-project-root/
+mentor-chatbot/
 │
 ├── bot.py #Core agent, tools, intent classification, memory handling
 ├── main.py #FastAPI backend server exposing chat + history APIs
